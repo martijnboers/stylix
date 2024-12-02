@@ -311,6 +311,67 @@ let
       ''
         set -eu
         get_exe() {
+  configPackage = pkgs.runCommandLocal "stylix-kde-config" {
+    kcminputrc = formatConfig kcminputrc;
+    kded5rc = formatConfig kded5rc;
+    kdeglobals = formatConfig kdeglobals;
+  } ''
+    mkdir "$out"
+
+    printf '%s\n' "$kcminputrc" >"$out/kcminputrc"
+    printf '%s\n' "$kded5rc" >"$out/kded5rc"
+    printf '%s\n' "$kdeglobals" >"$out/kdeglobals"
+  '';
+
+in {
+  options.stylix.targets.kde.enable =
+    config.lib.stylix.mkEnableTarget "KDE" true;
+
+  config = lib.mkIf (config.stylix.enable && config.stylix.targets.kde.enable && pkgs.stdenv.hostPlatform.isLinux) {
+    xdg = {
+      systemDirs.config = [ "${configPackage}" ];
+      configFile."kdeglobals".text = "${formatConfig colorscheme}";
+    };
+
+    qt = {
+      enable = true;
+      platformTheme.name = "kde";
+      style.name = "breeze";
+    };
+
+    home = {
+      packages = with pkgs; [
+        themePackage
+
+        # QT6 packages (note that full does not mean "install all of KDE", just all of Qt6)
+        (hiPrio kdePackages.full)
+        (hiPrio kdePackages.breeze-icons)
+        (hiPrio kdePackages.breeze)
+        (hiPrio kdePackages.plasma-integration)
+        (hiPrio kdePackages.qqc2-breeze-style)
+        (hiPrio kdePackages.qqc2-desktop-style)
+
+        # QT5 packages
+        libsForQt5.full
+        libsForQt5.breeze-icons
+        libsForQt5.breeze-qt5
+        libsForQt5.qqc2-breeze-style
+        libsForQt5.qqc2-desktop-style
+        libsForQt5.plasma-integration
+      ];
+
+      # plasma-apply-wallpaperimage is necessary to change the wallpaper
+      # after the first login.
+      #
+      # Home Manager clears $PATH before running the activation script, but we
+      # want to avoid installing these tools explicitly because that would pull
+      # in large dependencies for people who aren't actually using KDE.
+      # The workaround used is to assume a list of common paths where the tools
+      # might be installed, and look there. The ideal solution would require
+      # changes to KDE to make it possible to update the wallpaper through
+      # config files alone.
+      activation.stylixLookAndFeel = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        global_path() {
           for directory in /run/current-system/sw/bin /usr/bin /bin; do
             if [[ -f "$directory/$1" ]]; then
               printf '%s\n' "$directory/$1"
